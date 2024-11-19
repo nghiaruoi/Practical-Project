@@ -120,8 +120,11 @@ public class Main {
         String encryptedFilePath = filePath + ".encrypted";
         try (FileOutputStream fos = new FileOutputStream(encryptedFilePath)) {
             fos.write(cryptogram);
+        } catch (IOException e) {
+            System.err.println("Error writing file: " + e.getMessage());
         }
 
+        System.out.println(HexUtils.convertBytesToString(cryptogram));
         System.out.println("File encrypted successfully. Encrypted file saved as: " + encryptedFilePath);
     }
 
@@ -140,16 +143,16 @@ public class Main {
         byte[] ciphertext = new byte[encryptedData.length - 16];
         System.arraycopy(encryptedData, 16, ciphertext, 0, ciphertext.length);
 
-        // Initialize SHAKE-128 for keystream generation
+        // Initialize SHAKE-128 for key-stream generation
         SHA3SHAKE shake = new SHA3SHAKE();
         shake.init(128);
         shake.absorb(nonce);
         shake.absorb(key);
 
-        // Generate keystream of the same length as the ciphertext
+        // Generate key-stream of the same length as the ciphertext
         byte[] keystream = shake.squeeze(ciphertext.length);
 
-        // Decrypt the ciphertext by XORing with the keystream
+        // Decrypt the ciphertext by XORing with the key-stream
         byte[] plaintext = new byte[ciphertext.length];
         for (int i = 0; i < ciphertext.length; i++) {
             plaintext[i] = (byte) (ciphertext[i] ^ keystream[i]);
