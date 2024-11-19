@@ -1,7 +1,6 @@
 import java.math.BigInteger;
 import java.util.Arrays;
 
-import static java.lang.Math.min;
 import static java.lang.System.arraycopy;
 import static java.util.Arrays.fill;
 
@@ -10,14 +9,15 @@ public class SHA3SHAKE {
     private static final int STATE_SIZE = 200;
     private static int[] state = new int[STATE_SIZE];
     private static int rateInBits;     // The rate in bits
-    private int capacity; // The capacity in bits
     private static int domainSep;
     private static int currentPosition;
+    private static final BigInteger BIT_64 = new BigInteger("18446744073709551615");
+    private int capacity; // The capacity in bits
 
     public SHA3SHAKE() {
         state = new int[STATE_SIZE];
     }
-private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
+
     /**
      * Compute the streamlined SHA-3-<224,256,384,512> on input X.
      *
@@ -61,7 +61,6 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
         shake128.init(128);
         shake128.absorb(passphraseBytes);
         shake128.absorb(fileContent);
-
         shake128.absorb("T".getBytes());
         padding();
         byte[] mac128 = shake128.squeeze(256 / 8);
@@ -70,7 +69,6 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
         shake256.init(256);
         shake256.absorb(passphraseBytes);
         shake256.absorb(fileContent);
-
         shake256.absorb("T".getBytes());
         padding();
         byte[] mac256 = shake256.squeeze(outputLength / 8);
@@ -79,11 +77,117 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
         System.out.println("SHAKE256 MAC: " + HexUtils.convertBytesToString(mac256));
     }
 
+    private static void padding() {
+        int rateInBytes = rateInBits / 8;
+        int blockSize = currentPosition % rateInBytes;  // Get the size of the last block
+
+        // Apply domain separation padding
+        state[blockSize] ^= domainSep;
+        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
+            keccakf1600(state);
+        }
+
+        // Apply end of message padding
+        state[rateInBytes - 1] ^= 0x80;
+
+        // Final permutation
+        keccakf1600(state);
+
+    }
+
+    private static void keccakf1600(final int[] uState) {
+        BigInteger[][] lState = new BigInteger[5][5];
+
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 5; j++) {
+                int[] data = new int[8];
+                arraycopy(uState, 8 * (i + 5 * j), data, 0, data.length);
+                lState[i][j] = HexUtils.convertFromLittleEndianTo64(data);
+            }
+        }
+        roundB(lState);
+
+        fill(uState, 0);
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 5; j++) {
+                int[] data = HexUtils.convertFrom64ToLittleEndian(lState[i][j]);
+                arraycopy(data, 0, uState, 8 * (i + 5 * j), data.length);
+            }
+        }
+
+    }
+
+    /**
+     * Permutation on the given state.
+     *
+     * @param state state
+     */
+    private static void roundB(final BigInteger[][] state) {
+        int LFSRstate = 1;
+        for (int round = 0; round < 24; round++) {
+            BigInteger[] C = new BigInteger[5];
+            BigInteger[] D = new BigInteger[5];
+
+            // θ step
+            for (int i = 0; i < 5; i++) {
+                C[i] = state[i][0].xor(state[i][1]).xor(state[i][2]).xor(state[i][3]).xor(state[i][4]);
+            }
+
+            for (int i = 0; i < 5; i++) {
+                D[i] = C[(i + 4) % 5].xor(HexUtils.leftRotate64(C[(i + 1) % 5], 1));
+            }
+
+            for (int i = 0; i < 5; i++) {
+                for (int j = 0; j < 5; j++) {
+                    state[i][j] = state[i][j].xor(D[i]);
+                }
+            }
+
+            //ρ and π steps
+            int x = 1, y = 0;
+            BigInteger current = state[x][y];
+            for (int i = 0; i < 24; i++) {
+                int tX = x;
+                x = y;
+                y = (2 * tX + 3 * y) % 5;
+
+                BigInteger shiftValue = current;
+                current = state[x][y];
+
+                state[x][y] = HexUtils.leftRotate64(shiftValue, (i + 1) * (i + 2) / 2);
+            }
+
+            //χ step
+            for (int j = 0; j < 5; j++) {
+                BigInteger[] t = new BigInteger[5];
+                for (int i = 0; i < 5; i++) {
+                    t[i] = state[i][j];
+                }
+
+                for (int i = 0; i < 5; i++) {
+                    // ~t[(i + 1) % 5]
+                    BigInteger invertVal = t[(i + 1) % 5].xor(BIT_64);
+                    // t[i] ^ ((~t[(i + 1) % 5]) & t[(i + 2) % 5])
+                    state[i][j] = t[i].xor(invertVal.and(t[(i + 2) % 5]));
+                }
+            }
+
+            //ι step
+            for (int i = 0; i < 7; i++) {
+                LFSRstate = ((LFSRstate << 1) ^ ((LFSRstate >> 7) * 0x71)) % 256;
+                // pow(2, i) - 1
+                int bitPosition = (1 << i) - 1;
+                if ((LFSRstate & 2) != 0) {
+                    state[0][0] = state[0][0].xor(new BigInteger("1").shiftLeft(bitPosition));
+                }
+            }
+        }
+    }
 
     /**
      * Initialize the SHA-3/SHAKE sponge.
      * The suffix must be one of 224, 256, 384, or 512 for SHA-3, or one of 128 or 256 for SHAKE.
-     * Reference: https://keccak.team/keccak_specs_summary.html
+     * Reference: <a href="https://keccak.team/keccak_specs_summary.html">...</a>
      *
      * @param suffix SHA-3/SHAKE suffix (SHA-3 digest bitlength = suffix, SHAKE sec level = suffix)
      */
@@ -113,7 +217,6 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
         capacity = STATE_SIZE * 8 - rateInBits;
         Arrays.fill(state, 0);
     }
-
 
     /**
      * Update the SHAKE sponge with a byte-oriented data chunk.
@@ -157,23 +260,6 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
 //
 //        // Final permutation
 //        keccakf1600(state);
-    }
-    private static void padding() {
-        int rateInBytes = rateInBits / 8;
-        int blockSize = currentPosition % rateInBytes;  // Get the size of the last block
-
-        // Apply domain separation padding
-        state[blockSize] ^= domainSep;
-        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
-            keccakf1600(state);
-        }
-
-        // Apply end of message padding
-        state[rateInBytes - 1] ^= 0x80;
-
-        // Final permutation
-        keccakf1600(state);
-
     }
 
     /**
@@ -264,94 +350,5 @@ private static BigInteger BIT_64 = new BigInteger("18446744073709551615");
      */
     public byte[] digest() {
         return digest(new byte[capacity / 16]);
-    }
-
-    private static void keccakf1600(final int[] uState) {
-        BigInteger[][] lState = new BigInteger[5][5];
-
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 5; j++) {
-                int[] data = new int[8];
-                arraycopy(uState, 8 * (i + 5 * j), data, 0, data.length);
-                lState[i][j] = HexUtils.convertFromLittleEndianTo64(data);
-            }
-        }
-        roundB(lState);
-
-        fill(uState, 0);
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 5; j++) {
-                int[] data = HexUtils.convertFrom64ToLittleEndian(lState[i][j]);
-                arraycopy(data, 0, uState, 8 * (i + 5 * j), data.length);
-            }
-        }
-
-    }
-
-    /**
-     * Permutation on the given state.
-     *
-     * @param state state
-     */
-    private static void roundB(final BigInteger[][] state) {
-        int LFSRstate = 1;
-        for (int round = 0; round < 24; round++) {
-            BigInteger[] C = new BigInteger[5];
-            BigInteger[] D = new BigInteger[5];
-
-            // θ step
-            for (int i = 0; i < 5; i++) {
-                C[i] = state[i][0].xor(state[i][1]).xor(state[i][2]).xor(state[i][3]).xor(state[i][4]);
-            }
-
-            for (int i = 0; i < 5; i++) {
-                D[i] = C[(i + 4) % 5].xor(HexUtils.leftRotate64(C[(i + 1) % 5], 1));
-            }
-
-            for (int i = 0; i < 5; i++) {
-                for (int j = 0; j < 5; j++) {
-                    state[i][j] = state[i][j].xor(D[i]);
-                }
-            }
-
-            //ρ and π steps
-            int x = 1, y = 0;
-            BigInteger current = state[x][y];
-            for (int i = 0; i < 24; i++) {
-                int tX = x;
-                x = y;
-                y = (2 * tX + 3 * y) % 5;
-
-                BigInteger shiftValue = current;
-                current = state[x][y];
-
-                state[x][y] = HexUtils.leftRotate64(shiftValue, (i + 1) * (i + 2) / 2);
-            }
-
-            //χ step
-            for (int j = 0; j < 5; j++) {
-                BigInteger[] t = new BigInteger[5];
-                for (int i = 0; i < 5; i++) {
-                    t[i] = state[i][j];
-                }
-
-                for (int i = 0; i < 5; i++) {
-                    // ~t[(i + 1) % 5]
-                    BigInteger invertVal = t[(i + 1) % 5].xor(BIT_64);
-                    // t[i] ^ ((~t[(i + 1) % 5]) & t[(i + 2) % 5])
-                    state[i][j] = t[i].xor(invertVal.and(t[(i + 2) % 5]));
-                }
-            }
-
-            //ι step
-            for (int i = 0; i < 7; i++) {
-                LFSRstate = ((LFSRstate << 1) ^ ((LFSRstate >> 7) * 0x71)) % 256;
-                // pow(2, i) - 1
-                int bitPosition = (1 << i) - 1;
-                if ((LFSRstate & 2) != 0) {
-                    state[0][0] = state[0][0].xor(new BigInteger("1").shiftLeft(bitPosition));
-                }
-            }
-        }
     }
 }
