@@ -13,6 +13,7 @@ public class SHA3SHAKE {
     private static int currentPosition;
     private static final BigInteger BIT_64 = new BigInteger("18446744073709551615");
     private int capacity; // The capacity in bits
+    private int suffix;
 
     public SHA3SHAKE() {
         state = new int[STATE_SIZE];
@@ -32,8 +33,8 @@ public class SHA3SHAKE {
         SHA3SHAKE sha3 = new SHA3SHAKE();
         sha3.init(suffix);
         sha3.absorb(data);
-        padding();
-        return sha3.squeeze(out, suffix / 8);
+//        padding();
+        return sha3.digest(out);
     }
 
     /**
@@ -192,7 +193,7 @@ public class SHA3SHAKE {
      * @param suffix SHA-3/SHAKE suffix (SHA-3 digest bitlength = suffix, SHAKE sec level = suffix)
      */
     public void init(int suffix) {
-
+        this.suffix = suffix;
         // Set the rate and capacity based on the suffix
         switch (suffix) {
             case 224:
@@ -332,13 +333,23 @@ public class SHA3SHAKE {
      * @return the val buffer containing the desired hash value
      */
     public byte[] digest(byte[] out) {
-        int digestSize = (capacity / 2) / 8;
+        int digestSize = suffix / 8;
         if (out == null) {
             out = new byte[digestSize];
         }
-        // Padding
-        state[rateInBits / 8] ^= 0x06;
-        state[199] ^= 0x80;
+        int rateInBytes = rateInBits / 8;
+        int blockSize = currentPosition % rateInBytes;  // Get the size of the last block
+
+        // Apply domain separation padding
+        state[blockSize] ^= domainSep;
+        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
+            keccakf1600(state);
+        }
+
+        // Apply end of message padding
+        state[rateInBytes - 1] ^= 0x80;
+
+        // Final permutation
         keccakf1600(state);
         return squeeze(out, digestSize);
     }
@@ -349,6 +360,6 @@ public class SHA3SHAKE {
      * @return the desired hash value on a newly allocated byte array
      */
     public byte[] digest() {
-        return digest(new byte[capacity / 16]);
+        return digest(new byte[suffix / 8]);
     }
 }
