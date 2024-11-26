@@ -9,13 +9,14 @@ public class Edwards {
     private final BigInteger r; // Curve order
     private final Point G; // Generator point
 
+
     /**
      * Create an instance of the default curve NUMS-256.
      */
     public Edwards() {
-        this.p = BigInteger.valueOf(2).pow(256).subtract(BigInteger.valueOf(189));
+        this.p = BigInteger.TWO.pow(256).subtract(BigInteger.valueOf(189));
         this.d = BigInteger.valueOf(15343);
-        this.r = new BigInteger("7237005577332262213973186563042994240857116359379907606001950938285454250989");
+        this.r = BigInteger.TWO.pow(254).subtract(new BigInteger("87175310462106073678594642380840586067"));
         this.G = findGenerator();
     }
 
@@ -63,24 +64,41 @@ public class Edwards {
      * otherwise the neutral element O = (0, 1)
      */
     public Point getPoint(BigInteger y, boolean x_lsb) {
+//        BigInteger y2 = y.pow(2).mod(p);
+//        BigInteger u = y2.subtract(BigInteger.ONE).mod(p);
+//        BigInteger v = d.multiply(y2).add(BigInteger.ONE).mod(p);
+//        BigInteger x = u.multiply(v.modInverse(p)).mod(p);
+//        x = sqrt(x, p, x_lsb);
+//        if (x == null) {
+//            return new Point(); // Return neutral element if sqrt doesn't exist
+//        }
+//        return new Point(x, y);
         BigInteger y2 = y.pow(2).mod(p);
-        BigInteger u = y2.subtract(BigInteger.ONE).mod(p);
-        BigInteger v = d.multiply(y2).add(BigInteger.ONE).mod(p);
-        BigInteger x = u.multiply(v.modInverse(p)).mod(p);
-        x = sqrt(x, p, x_lsb);
+        BigInteger u = BigInteger.ONE.subtract(y2);
+        BigInteger v = BigInteger.ONE.subtract(d.multiply(y2)).modInverse(p);
+        BigInteger x2 = u.multiply(v).mod(p);
+
+        BigInteger x = sqrt(x2, p, x_lsb);
         if (x == null) {
             return new Point(); // Return neutral element if sqrt doesn't exist
         }
-        return new Point(x, y);
+
+        Point point = new Point(x, y);
+        if (point.mul(r).isZero()) {
+            return point;
+        } else {
+            return new Point(); // Return neutral element if order is not r
+        }
     }
 
     private BigInteger sqrt(BigInteger v, BigInteger p, boolean lsb) {
-        if (v.equals(BigInteger.ZERO)) {
+        assert (p.testBit(0) && p.testBit(1)); // p = 3 (mod 4)
+        if (v.signum() == 0) {
             return BigInteger.ZERO;
         }
         BigInteger r = v.modPow(p.shiftRight(2).add(BigInteger.ONE), p);
         if (r.testBit(0) != lsb) {
-            r = p.subtract(r);
+            r = p.subtract(r); // correct the lsb
         }
         return (r.multiply(r).subtract(v).mod(p).signum() == 0) ? r : null;
     }

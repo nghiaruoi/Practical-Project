@@ -2,6 +2,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 
 public class Main {
@@ -57,12 +59,51 @@ public class Main {
                     }
                     decryptFile(filePath, passphrase);
                     break;
+
+                case "generate":
+                    passphrase = filePath;
+                    if (passphrase == null) {
+                        System.out.println("Passphrase is required for generating keypair");
+                    }
+                    generateKeyPair(passphrase);
+                    break;
                 default:
                     System.out.println("Unknown operation: " + operation);
             }
         } catch (IOException e) {
             System.out.println("Error reading file: " + e.getMessage());
         }
+    }
+
+    private static void generateKeyPair(String passphrase) {
+        // The order of the curve's base point G
+        final BigInteger r = new BigInteger("7237005577332262213973186563042994240857116359379907606001950938285454250989");
+
+        // Assuming you have an Edwards class that implements the curve operations
+        final Edwards curve = new Edwards();
+
+        SHA3SHAKE shake = new SHA3SHAKE();
+        shake.init(128);
+        shake.absorb(passphrase.getBytes(StandardCharsets.UTF_8));
+
+        // 2. Squeeze a 256-bit byte array
+        byte[] squeezed = shake.squeeze(32); // 32 bytes = 256 bits
+
+        // 3. Create a BigInteger from the squeezed bytes and reduce mod r
+        BigInteger s = new BigInteger(1, squeezed).mod(r);
+
+        // 4. Compute V = s * G
+        Edwards.Point G = curve.gen();
+        Edwards.Point V = G.mul(s);
+
+        // 5. Check the least significant bit of the x-coordinate of V
+        if (V.getX().testBit(0)) {
+            // If LSB is 1, replace s by r - s and V by -V
+            s = r.subtract(s);
+            V = V.negate();
+        }
+        System.out.println("Private Key: " + s);
+        System.out.println("Public Key: " + V.toString());
     }
 
     public static void computeHash(String filePath) throws IOException {
