@@ -102,6 +102,7 @@ public class Main {
             s = r.subtract(s);
             V = V.negate();
         }
+
         System.out.println("Private Key: " + s);
         System.out.println("Public Key: " + V.toString());
     }
@@ -212,8 +213,14 @@ public class Main {
     private static byte[] readFile(String filePath) throws IOException {
         File file = new File(filePath);
         byte[] fileContent = new byte[(int) file.length()];
-        FileInputStream fis = new FileInputStream(file);
-        fis.close();
+
+        try (FileInputStream fis = new FileInputStream(file)) {
+            int bytesRead = fis.read(fileContent);
+            if (bytesRead != fileContent.length) {
+                throw new IOException("Could not completely read the file " + file.getName());
+            }
+        }
+
         return fileContent;
     }
 }

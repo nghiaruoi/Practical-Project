@@ -1,22 +1,33 @@
-import java.math.BigInteger;
 import java.util.Arrays;
 
-import static java.lang.System.arraycopy;
-import static java.util.Arrays.fill;
-
 public class SHA3SHAKE {
+    private static final int KECCAK_ROUNDS = 24;
+    private static final long[] KECCAK_ROUND_CONSTANTS = {
+            0x0000000000000001L, 0x0000000000008082L, 0x800000000000808aL,
+            0x8000000080008000L, 0x000000000000808bL, 0x0000000080000001L,
+            0x8000000080008081L, 0x8000000000008009L, 0x000000000000008aL,
+            0x0000000000000088L, 0x0000000080008009L, 0x000000008000000aL,
+            0x000000008000808bL, 0x800000000000008bL, 0x8000000000008089L,
+            0x8000000000008003L, 0x8000000000008002L, 0x8000000000000080L,
+            0x000000000000800aL, 0x800000008000000aL, 0x8000000080008081L,
+            0x8000000000008080L, 0x0000000080000001L, 0x8000000080008008L
+    };
+    private static final int[] KECCAK_ROTATIONS = {
+            1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14,
+            27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44
+    };
+    private static final int[] KECCAK_PERMUTATIONS = {
+            10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
+            15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1
+    };
 
-    private static final int STATE_SIZE = 200;
-    private static int[] state = new int[STATE_SIZE];
-    private static int rateInBits;     // The rate in bits
-    private static int domainSep;
-    private static int currentPosition;
-    private static final BigInteger BIT_64 = new BigInteger("18446744073709551615");
-    private int capacity; // The capacity in bits
-    private int suffix;
+    private final long[] state = new long[25];
+    private int rateSizeInBytes;
+    private int digestSizeInBytes;
+    private int position;
+    private boolean isPadded;
 
     public SHA3SHAKE() {
-        state = new int[STATE_SIZE];
     }
 
     /**
@@ -28,12 +39,14 @@ public class SHA3SHAKE {
      * @return the out buffer containing the desired hash value.
      */
     public static byte[] SHA3(int suffix, byte[] X, byte[] out) {
-        byte[] data = X.clone();
-        domainSep = 0x06;
         SHA3SHAKE sha3 = new SHA3SHAKE();
         sha3.init(suffix);
-        sha3.absorb(data);
-//        padding();
+        sha3.absorb(X);
+
+        if (out == null || out.length < suffix / 8) {
+            out = new byte[suffix / 8];
+        }
+
         return sha3.digest(out);
     }
 
@@ -47,271 +60,104 @@ public class SHA3SHAKE {
      * @return the out buffer containing the desired hash value.
      */
     public static byte[] SHAKE(int suffix, byte[] X, int L, byte[] out) {
-        byte[] data = X.clone();
-        domainSep = 0x1F;
+        if (suffix != 128 && suffix != 256) {
+            throw new IllegalArgumentException("SHAKE suffix must be either 128 or 256");
+        }
+        if (L % 8 != 0) {
+            throw new IllegalArgumentException("Output length L must be a multiple of 8 bits");
+        }
+
         SHA3SHAKE shake = new SHA3SHAKE();
         shake.init(suffix);
-        shake.absorb(data);
-        return shake.squeeze(out, L / 8);
+        shake.absorb(X);
+
+        int outputBytes = L / 8;
+        if (out == null || out.length < outputBytes) {
+            out = new byte[outputBytes];
+        }
+
+        return shake.squeeze(out, outputBytes);
     }
 
     public static void MAC(byte[] fileContent, String passphrase, int outputLength) {
         byte[] passphraseBytes = passphrase.getBytes();
-        domainSep = 0x1F;
         SHA3SHAKE shake128 = new SHA3SHAKE();
         shake128.init(128);
         shake128.absorb(passphraseBytes);
         shake128.absorb(fileContent);
         shake128.absorb("T".getBytes());
-        padding();
-        byte[] mac128 = shake128.squeeze(256 / 8);
+        byte[] mac128 = shake128.squeeze(outputLength / 8);
 
         SHA3SHAKE shake256 = new SHA3SHAKE();
         shake256.init(256);
         shake256.absorb(passphraseBytes);
         shake256.absorb(fileContent);
         shake256.absorb("T".getBytes());
-        padding();
         byte[] mac256 = shake256.squeeze(outputLength / 8);
 
         System.out.println("SHAKE128 MAC: " + HexUtils.convertBytesToString(mac128));
         System.out.println("SHAKE256 MAC: " + HexUtils.convertBytesToString(mac256));
     }
 
-    private static void padding() {
-        int rateInBytes = rateInBits / 8;
-        int blockSize = currentPosition % rateInBytes;  // Get the size of the last block
-
-        // Apply domain separation padding
-        state[blockSize] ^= domainSep;
-        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
-            keccakf1600(state);
-        }
-
-        // Apply end of message padding
-        state[rateInBytes - 1] ^= 0x80;
-
-        // Final permutation
-        keccakf1600(state);
-
-    }
-
-    private static void keccakf1600(final int[] uState) {
-        BigInteger[][] lState = new BigInteger[5][5];
-
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 5; j++) {
-                int[] data = new int[8];
-                arraycopy(uState, 8 * (i + 5 * j), data, 0, data.length);
-                lState[i][j] = HexUtils.convertFromLittleEndianTo64(data);
-            }
-        }
-        roundB(lState);
-
-        fill(uState, 0);
-        for (int i = 0; i < 5; i++) {
-            for (int j = 0; j < 5; j++) {
-                int[] data = HexUtils.convertFrom64ToLittleEndian(lState[i][j]);
-                arraycopy(data, 0, uState, 8 * (i + 5 * j), data.length);
-            }
-        }
-
-    }
-
-    /**
-     * Permutation on the given state.
-     *
-     * @param state state
-     */
-    private static void roundB(final BigInteger[][] state) {
-        int LFSRstate = 1;
-        for (int round = 0; round < 24; round++) {
-            BigInteger[] C = new BigInteger[5];
-            BigInteger[] D = new BigInteger[5];
-
-            // θ step
-            for (int i = 0; i < 5; i++) {
-                C[i] = state[i][0].xor(state[i][1]).xor(state[i][2]).xor(state[i][3]).xor(state[i][4]);
-            }
-
-            for (int i = 0; i < 5; i++) {
-                D[i] = C[(i + 4) % 5].xor(HexUtils.leftRotate64(C[(i + 1) % 5], 1));
-            }
-
-            for (int i = 0; i < 5; i++) {
-                for (int j = 0; j < 5; j++) {
-                    state[i][j] = state[i][j].xor(D[i]);
-                }
-            }
-
-            //ρ and π steps
-            int x = 1, y = 0;
-            BigInteger current = state[x][y];
-            for (int i = 0; i < 24; i++) {
-                int tX = x;
-                x = y;
-                y = (2 * tX + 3 * y) % 5;
-
-                BigInteger shiftValue = current;
-                current = state[x][y];
-
-                state[x][y] = HexUtils.leftRotate64(shiftValue, (i + 1) * (i + 2) / 2);
-            }
-
-            //χ step
-            for (int j = 0; j < 5; j++) {
-                BigInteger[] t = new BigInteger[5];
-                for (int i = 0; i < 5; i++) {
-                    t[i] = state[i][j];
-                }
-
-                for (int i = 0; i < 5; i++) {
-                    // ~t[(i + 1) % 5]
-                    BigInteger invertVal = t[(i + 1) % 5].xor(BIT_64);
-                    // t[i] ^ ((~t[(i + 1) % 5]) & t[(i + 2) % 5])
-                    state[i][j] = t[i].xor(invertVal.and(t[(i + 2) % 5]));
-                }
-            }
-
-            //ι step
-            for (int i = 0; i < 7; i++) {
-                LFSRstate = ((LFSRstate << 1) ^ ((LFSRstate >> 7) * 0x71)) % 256;
-                // pow(2, i) - 1
-                int bitPosition = (1 << i) - 1;
-                if ((LFSRstate & 2) != 0) {
-                    state[0][0] = state[0][0].xor(new BigInteger("1").shiftLeft(bitPosition));
-                }
-            }
-        }
-    }
-
-    /**
-     * Initialize the SHA-3/SHAKE sponge.
-     * The suffix must be one of 224, 256, 384, or 512 for SHA-3, or one of 128 or 256 for SHAKE.
-     * Reference: <a href="https://keccak.team/keccak_specs_summary.html">...</a>
-     *
-     * @param suffix SHA-3/SHAKE suffix (SHA-3 digest bitlength = suffix, SHAKE sec level = suffix)
-     */
     public void init(int suffix) {
-        this.suffix = suffix;
-        // Set the rate and capacity based on the suffix
-        switch (suffix) {
-            case 224:
-                rateInBits = 1152;
-                break;
-            case 256:
-                rateInBits = 1088;
-                break;
-            case 384:
-                rateInBits = 832;
-                break;
-            case 512:
-                rateInBits = 576;
-                break;
-            case 128:
-                rateInBits = 1344;
-                domainSep = 0x1F;
-                break;
-            default:
-                throw new IllegalArgumentException("Invalid suffix. Must be 224, 256, 384, or 512 for SHA-3, or 128 or 256 for SHAKE.");
+        Arrays.fill(state, 0L);
+        this.position = 0;
+
+        if (isPadded) {
+            this.rateSizeInBytes = 200 - (suffix / 4);
+            this.digestSizeInBytes = suffix / 8;
+        } else {
+            this.rateSizeInBytes = 200 - (suffix / 4);
+            this.digestSizeInBytes = suffix / 8;
         }
-        capacity = STATE_SIZE * 8 - rateInBits;
-        Arrays.fill(state, 0);
     }
 
-    /**
-     * Update the SHAKE sponge with a byte-oriented data chunk.
-     *
-     * @param data byte-oriented data buffer
-     * @param pos  initial index to hash from
-     * @param len  byte count on the buffer
-     */
-    public void absorb(byte[] data, int pos, int len) {
-        int[] convertedData = HexUtils.convertToUnsignedInt(data);
-        int rateInBytes = rateInBits / 8;
-        int blockSize;
-        int remainingLength = len;
-
-        // Absorbing phase
-        while (remainingLength > 0) {
-            blockSize = Math.min(remainingLength, rateInBytes);
-            for (int i = 0; i < blockSize; i++) {
-                state[i] ^= convertedData[i + pos];
-            }
-
-            pos += blockSize;
-            remainingLength -= blockSize;
-
-            if (blockSize == rateInBytes) {
-                keccakf1600(state);
-            }
-        }
-        currentPosition = pos;
-//        // Padding phase
-//        blockSize = pos % rateInBytes;  // Get the size of the last block
-//
-//        // Apply domain separation padding
-//        state[blockSize] ^= domainSep;
-//        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
-//            keccakf1600(state);
-//        }
-//
-//        // Apply end of message padding
-//        state[rateInBytes - 1] ^= 0x80;
-//
-//        // Final permutation
-//        keccakf1600(state);
-    }
-
-    /**
-     * Update the SHAKE sponge with a byte-oriented data chunk.
-     *
-     * @param data byte-oriented data buffer
-     * @param len  byte count on the buffer (starting at index 0)
-     */
-    public void absorb(byte[] data, int len) {
-        absorb(data, 0, len);
-    }
-
-    /**
-     * Update the SHAKE sponge with a byte-oriented data chunk.
-     *
-     * @param data byte-oriented data buffer
-     */
     public void absorb(byte[] data) {
         absorb(data, 0, data.length);
     }
 
+    public void absorb(byte[] data, int len) {
+        absorb(data, 0, len);
+    }
+
+    public void absorb(byte[] data, int pos, int len) {
+        for (int i = pos; i < pos + len; i++) {
+            state[position / 8] ^= ((long) data[i] & 0xFF) << (8 * (position % 8));
+            position++;
+            if (position == rateSizeInBytes) {
+                keccakF1600();
+                position = 0;
+            }
+        }
+    }
+
     /**
-     * Squeeze a chunk of hashed bytes from the sponge.
-     * Call this method as many times as needed to extract the total desired number of bytes.
+     * Squeeze a whole SHA-3 digest of hashed bytes from the sponge.
+     *
+     * @return the desired hash value on a newly allocated byte array
+     */
+    public byte[] digest() {
+        return digest(new byte[digestSizeInBytes]);
+    }
+
+    /**
+     * Squeeze a whole SHA-3 digest of hashed bytes from the sponge.
      *
      * @param out hash value buffer
-     * @param len desired number of squeezed bytes
      * @return the val buffer containing the desired hash value
      */
-    public byte[] squeeze(byte[] out, int len) {
-        if (out == null) {
-            out = new byte[len];
+    public byte[] digest(byte[] out) {
+
+        // Padding
+        state[position / 8] ^= 0x06L << (8 * (position % 8));
+        state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
+        keccakF1600();
+
+        // Extract the digest
+        for (int i = 0; i < digestSizeInBytes; i++) {
+            out[i] = (byte) (state[i / 8] >> (8 * (i % 8)));
         }
-        int rateInBytes = rateInBits / 8;
-        int blockSize;
-        int remainingLength = len;
-        int outOffset = 0;
 
-        while (remainingLength > 0) {
-            blockSize = Math.min(remainingLength, rateInBytes);
-            for (int i = 0; i < blockSize; i++) {
-                out[outOffset + i] = (byte) state[i];
-            }
-
-            outOffset += blockSize;
-            remainingLength -= blockSize;
-
-            if (remainingLength > 0) {
-                keccakf1600(state);
-            }
-        }
         return out;
     }
 
@@ -327,39 +173,73 @@ public class SHA3SHAKE {
     }
 
     /**
-     * Squeeze a whole SHA-3 digest of hashed bytes from the sponge.
+     * Squeeze a chunk of hashed bytes from the sponge.
+     * Call this method as many times as needed to extract the total desired number of bytes.*
      *
-     * @param out hash value buffer
-     * @return the val buffer containing the desired hash value
+     * @param len desired number of squeezed bytes
+     * @return newly allocated buffer containing the desired hash value
      */
-    public byte[] digest(byte[] out) {
-        int digestSize = suffix / 8;
-        if (out == null) {
-            out = new byte[digestSize];
-        }
-        int rateInBytes = rateInBits / 8;
-        int blockSize = currentPosition % rateInBytes;  // Get the size of the last block
-
-        // Apply domain separation padding
-        state[blockSize] ^= domainSep;
-        if ((domainSep & 0x80) != 0 && blockSize == (rateInBytes - 1)) {
-            keccakf1600(state);
+    public byte[] squeeze(byte[] out, int len) {
+        if (!isPadded) {
+            // Apply padding for SHAKE
+            state[position / 8] ^= 0x1FL << (8 * (position % 8));
+            state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
+            keccakF1600();
+            isPadded = true;
         }
 
-        // Apply end of message padding
-        state[rateInBytes - 1] ^= 0x80;
+        for (int i = 0; i < len; i++) {
+            if (position == rateSizeInBytes) {
+                keccakF1600();
+                position = 0;
+            }
+            out[i] = (byte) (state[position / 8] >> (8 * (position % 8)));
+            position++;
+        }
 
-        // Final permutation
-        keccakf1600(state);
-        return squeeze(out, digestSize);
+        return out;
     }
 
     /**
-     * Squeeze a whole SHA-3 digest of hashed bytes from the sponge.
-     *
-     * @return the desired hash value on a newly allocated byte array
+     * Perform the Keccak-f[1600] permutation
      */
-    public byte[] digest() {
-        return digest(new byte[suffix / 8]);
+    private void keccakF1600() {
+        long[] lanes = new long[5];
+        long temp;
+
+        for (int round = 0; round < KECCAK_ROUNDS; round++) {
+            // Theta step
+            for (int x = 0; x < 5; x++) {
+                lanes[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
+            }
+            for (int x = 0; x < 5; x++) {
+                temp = lanes[(x + 4) % 5] ^ Long.rotateLeft(lanes[(x + 1) % 5], 1);
+                for (int y = 0; y < 25; y += 5) {
+                    state[y + x] ^= temp;
+                }
+            }
+
+            // Rho and Pi steps
+            temp = state[1];
+            for (int i = 0; i < 24; i++) {
+                int j = KECCAK_PERMUTATIONS[i];
+                lanes[0] = state[j];
+                state[j] = Long.rotateLeft(temp, KECCAK_ROTATIONS[i]);
+                temp = lanes[0];
+            }
+
+            // Chi step
+            for (int y = 0; y < 25; y += 5) {
+                System.arraycopy(state, y, lanes, 0, 5);
+                for (int x = 0; x < 5; x++) {
+                    state[y + x] ^= (~lanes[(x + 1) % 5]) & lanes[(x + 2) % 5];
+                }
+            }
+
+            // Iota step
+            state[0] ^= KECCAK_ROUND_CONSTANTS[round];
+        }
     }
+
+
 }
