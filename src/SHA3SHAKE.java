@@ -79,6 +79,9 @@ public class SHA3SHAKE {
         return shake.squeeze(out, outputBytes);
     }
 
+    /**
+     * Compute MAC
+     */
     public static void MAC(byte[] fileContent, String passphrase, int outputLength) {
         byte[] passphraseBytes = passphrase.getBytes();
         SHA3SHAKE shake128 = new SHA3SHAKE();
@@ -99,6 +102,11 @@ public class SHA3SHAKE {
         System.out.println("SHAKE256 MAC: " + HexUtils.convertBytesToString(mac256));
     }
 
+    /**
+     * Initialize the SHA-3/SHAKE sponge.
+     * The suffix must be one of 224, 256, 384, or 512 for SHA-3, or one of 128 or 256 for SHAKE.
+     * @param suffix SHA-3/SHAKE suffix (SHA-3 digest bitlength = suffix, SHAKE sec level = suffix)
+     */
     public void init(int suffix) {
         Arrays.fill(state, 0L);
         this.position = 0;
@@ -112,14 +120,32 @@ public class SHA3SHAKE {
         }
     }
 
+    /**
+     * Update the SHAKE sponge with a byte-oriented data chunk.
+     *
+     * @param data byte-oriented data buffer
+     */
     public void absorb(byte[] data) {
         absorb(data, 0, data.length);
     }
 
+    /**
+     * Update the SHAKE sponge with a byte-oriented data chunk.
+     *
+     * @param data byte-oriented data buffer
+     * @param len byte count on the buffer (starting at index 0)
+     */
     public void absorb(byte[] data, int len) {
         absorb(data, 0, len);
     }
 
+    /**
+     * Update the SHAKE sponge with a byte-oriented data chunk.
+     *
+     * @param data byte-oriented data buffer
+     * @param pos initial index to hash from
+     * @param len byte count on the buffer
+     */
     public void absorb(byte[] data, int pos, int len) {
         for (int i = pos; i < pos + len; i++) {
             state[position / 8] ^= ((long) data[i] & 0xFF) << (8 * (position % 8));
@@ -240,6 +266,4 @@ public class SHA3SHAKE {
             state[0] ^= KECCAK_ROUND_CONSTANTS[round];
         }
     }
-
-
 }
