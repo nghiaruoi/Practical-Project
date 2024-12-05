@@ -105,6 +105,7 @@ public class SHA3SHAKE {
     /**
      * Initialize the SHA-3/SHAKE sponge.
      * The suffix must be one of 224, 256, 384, or 512 for SHA-3, or one of 128 or 256 for SHAKE.
+     *
      * @param suffix SHA-3/SHAKE suffix (SHA-3 digest bitlength = suffix, SHAKE sec level = suffix)
      */
     public void init(int suffix) {
@@ -133,7 +134,7 @@ public class SHA3SHAKE {
      * Update the SHAKE sponge with a byte-oriented data chunk.
      *
      * @param data byte-oriented data buffer
-     * @param len byte count on the buffer (starting at index 0)
+     * @param len  byte count on the buffer (starting at index 0)
      */
     public void absorb(byte[] data, int len) {
         absorb(data, 0, len);
@@ -143,8 +144,8 @@ public class SHA3SHAKE {
      * Update the SHAKE sponge with a byte-oriented data chunk.
      *
      * @param data byte-oriented data buffer
-     * @param pos initial index to hash from
-     * @param len byte count on the buffer
+     * @param pos  initial index to hash from
+     * @param len  byte count on the buffer
      */
     public void absorb(byte[] data, int pos, int len) {
         for (int i = pos; i < pos + len; i++) {
@@ -206,13 +207,11 @@ public class SHA3SHAKE {
      * @return newly allocated buffer containing the desired hash value
      */
     public byte[] squeeze(byte[] out, int len) {
-        if (!isPadded) {
-            // Apply padding for SHAKE
-            state[position / 8] ^= 0x1FL << (8 * (position % 8));
-            state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
-            keccakF1600();
-            isPadded = true;
-        }
+
+        state[position / 8] ^= 0x1FL << (8 * (position % 8));
+        state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
+        keccakF1600();
+        position = 0;
 
         for (int i = 0; i < len; i++) {
             if (position == rateSizeInBytes) {
