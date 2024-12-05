@@ -33,6 +33,12 @@ public class Main {
      * USER-SUPPLIED PASSPHRASE </p>
      * <p> Decrypt the symmetric cryptogram: </p>
      * <code> java Main decrypt testfile.txt.encrypted mypassword </code>
+     * <p></p>
+     * ====================================================================
+     * <p> SUPPORTING MATERIAL: </p>
+     *  <code> https://github.com/mjosaarinen/tiny_sha3/blob/master/sha3.c </code> <br>
+     *  <code> https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf </code> <br>
+     *  <code> https://emn178.github.io/online-tools/cshake128/ </code>
      */
 
     private static final SecureRandom random = new SecureRandom();
