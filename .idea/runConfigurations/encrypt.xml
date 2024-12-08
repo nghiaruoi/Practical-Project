@@ -2,7 +2,7 @@
   <configuration default="false" name="encrypt" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="Main" />
     <module name="Practical Project" />
-    <option name="PROGRAM_PARAMETERS" value="encrypt testfile.txt mypassword" />
+    <option name="PROGRAM_PARAMETERS" value="encrypt text.txt mypassphrase" />
     <method v="2">
       <option name="Make" enabled="true" />
     </method>

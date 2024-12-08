@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="MAC" type="Application" factoryName="Application">
+  <configuration default="false" name="MAC file" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="Main" />
     <module name="Practical Project" />
     <option name="PROGRAM_PARAMETERS" value="mac text.txt mypassphrase 256" />

@@ -1,3 +1,4 @@
+import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 
 public class SHA3SHAKE {
@@ -21,11 +22,16 @@ public class SHA3SHAKE {
             15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1
     };
 
+    private static final byte[] ENCODE_BYTE_TABLE = {
+            (byte) '0', (byte) '1', (byte) '2', (byte) '3', (byte) '4', (byte) '5', (byte) '6', (byte) '7',
+            (byte) '8', (byte) '9', (byte) 'a', (byte) 'b', (byte) 'c', (byte) 'd', (byte) 'e', (byte) 'f'
+    };
+
     private final long[] state = new long[25];
     private int rateSizeInBytes;
     private int digestSizeInBytes;
     private int position;
-    private boolean isPadded;
+    private boolean isSqueezing;
 
     public SHA3SHAKE() {
     }
@@ -98,8 +104,26 @@ public class SHA3SHAKE {
         shake256.absorb("T".getBytes());
         byte[] mac256 = shake256.squeeze(outputLength / 8);
 
-        System.out.println("SHAKE128 MAC: " + HexUtils.convertBytesToString(mac128));
-        System.out.println("SHAKE256 MAC: " + HexUtils.convertBytesToString(mac256));
+        System.out.println("SHAKE128 MAC: " + convertBytesToString(mac128));
+        System.out.println("SHAKE256 MAC: " + convertBytesToString(mac256));
+    }
+
+    /**
+     * Convert bytes to string.
+     *
+     * @param data bytes array
+     * @return string
+     */
+    public static String convertBytesToString(final byte[] data) {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        for (byte datum : data) {
+            int uVal = datum & 0xFF;
+
+            buffer.write(ENCODE_BYTE_TABLE[(uVal >>> 4)]);
+            buffer.write(ENCODE_BYTE_TABLE[uVal & 0xF]);
+        }
+
+        return buffer.toString();
     }
 
     /**
@@ -111,14 +135,9 @@ public class SHA3SHAKE {
     public void init(int suffix) {
         Arrays.fill(state, 0L);
         this.position = 0;
-
-        if (isPadded) {
-            this.rateSizeInBytes = 200 - (suffix / 4);
-            this.digestSizeInBytes = suffix / 8;
-        } else {
-            this.rateSizeInBytes = 200 - (suffix / 4);
-            this.digestSizeInBytes = suffix / 8;
-        }
+        this.isSqueezing = false;
+        this.rateSizeInBytes = 200 - (suffix / 4);
+        this.digestSizeInBytes = suffix / 8;
     }
 
     /**
@@ -207,11 +226,13 @@ public class SHA3SHAKE {
      * @return newly allocated buffer containing the desired hash value
      */
     public byte[] squeeze(byte[] out, int len) {
-
-        state[position / 8] ^= 0x1FL << (8 * (position % 8));
-        state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
-        keccakF1600();
-        position = 0;
+        if (!isSqueezing) {
+            state[position / 8] ^= 0x1FL << (8 * (position % 8));
+            state[(rateSizeInBytes - 1) / 8] ^= 0x80L << (8 * ((rateSizeInBytes - 1) % 8));
+            keccakF1600();
+            position = 0;
+            isSqueezing = true;
+        }
 
         for (int i = 0; i < len; i++) {
             if (position == rateSizeInBytes) {

@@ -9,7 +9,6 @@ public class Edwards {
     private final BigInteger r; // Curve order
     private final Point G; // Generator point
 
-
     /**
      * Create an instance of the default curve NUMS-256.
      */
@@ -64,19 +63,10 @@ public class Edwards {
      * otherwise the neutral element O = (0, 1)
      */
     public Point getPoint(BigInteger y, boolean x_lsb) {
-//        BigInteger y2 = y.pow(2).mod(p);
-//        BigInteger u = y2.subtract(BigInteger.ONE).mod(p);
-//        BigInteger v = d.multiply(y2).add(BigInteger.ONE).mod(p);
-//        BigInteger x = u.multiply(v.modInverse(p)).mod(p);
-//        x = sqrt(x, p, x_lsb);
-//        if (x == null) {
-//            return new Point(); // Return neutral element if sqrt doesn't exist
-//        }
-//        return new Point(x, y);
-        BigInteger y2 = y.pow(2).mod(p);
-        BigInteger u = BigInteger.ONE.subtract(y2);
-        BigInteger v = BigInteger.ONE.subtract(d.multiply(y2)).modInverse(p);
-        BigInteger x2 = u.multiply(v).mod(p);
+        BigInteger y2 = y.multiply(y).mod(p);
+        BigInteger numerator = BigInteger.ONE.subtract(y2);
+        BigInteger denominator = BigInteger.ONE.subtract(d.multiply(y2));
+        BigInteger x2 = numerator.multiply(denominator.modInverse(p)).mod(p);
 
         BigInteger x = sqrt(x2, p, x_lsb);
         if (x == null) {
@@ -114,6 +104,18 @@ public class Edwards {
     @Override
     public String toString() {
         return String.format("NUMS ed-256-mers*: x^2 + y^2 = 1 + %d*x^2*y^2 mod %s", d, p);
+    }
+
+    public BigInteger getD() {
+        return d;
+    }
+
+    public BigInteger getP() {
+        return p;
+    }
+
+    public BigInteger getOrder() {
+        return r;
     }
 
     /**
@@ -184,7 +186,8 @@ public class Edwards {
          * @param P a point on the curve
          * @return this + P
          */
-        public Point add(Point P) {  BigInteger x1 = this.x, y1 = this.y;
+        public Point add(Point P) {
+            BigInteger x1 = this.x, y1 = this.y;
             BigInteger x2 = P.x, y2 = P.y;
 
             BigInteger x3Num = x1.multiply(y2).add(y1.multiply(x2)).mod(p);
@@ -195,7 +198,8 @@ public class Edwards {
             BigInteger x3 = x3Num.multiply(x3Den.modInverse(p)).mod(p);
             BigInteger y3 = y3Num.multiply(y3Den.modInverse(p)).mod(p);
 
-            return new Point(x3, y3); }
+            return new Point(x3, y3);
+        }
 
         /**
          * Multiply a point P = (x, y) on the curve by a scalar m.
@@ -203,7 +207,8 @@ public class Edwards {
          * @param m a scalar factor (an integer mod the curve order)
          * @return m*P
          */
-        public Point mul(BigInteger m) {  Point result = new Point();
+        public Point mul(BigInteger m) {
+            Point result = new Point();
             Point base = this;
             m = m.mod(r);
 
@@ -228,10 +233,13 @@ public class Edwards {
         public String toString() {
             return String.format("(%s, %s)", x.toString(), y.toString());
         }
-        public BigInteger getX() { return x; }
-        public BigInteger getY() { return y; }
+
+        public BigInteger getX() {
+            return x;
+        }
+
+        public BigInteger getY() {
+            return y;
+        }
     }
-    public BigInteger getD() { return d; }
-    public BigInteger getP() { return p; }
-    public BigInteger getOrder() { return r; }
 }
